@@ -4,12 +4,17 @@ import { isDBReady } from '../config/db.js';
 import { answerQuestion } from '../services/rag.js';
 import { getAIResponse } from '../services/gemini.js';
 import { requireAuth } from '../middleware/auth.js';
+import { Document } from '../models/Document.js';
 
 const router = Router();
 
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { message, documentId } = req.body;
+    const {
+      message,
+      documentId,
+      documentIds,
+    } = req.body;
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({
@@ -18,24 +23,55 @@ router.post('/', requireAuth, async (req, res) => {
       });
     }
 
+    if (!isDBReady()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database is not connected. Configure MONGODB_URI in .env.',
+      });
+    }
+
     const trimmed = message.trim();
 
-    if (documentId) {
-      if (!isDBReady()) {
-        return res.status(503).json({
-          success: false,
-          error: 'Database is not connected. Configure MONGODB_URI in .env.',
-        });
-      }
+    // Support both documentId and documentIds
+    let selectedDocumentIds = Array.isArray(documentIds)
+      ? documentIds
+      : documentId
+        ? [documentId]
+        : [];
 
-      if (!mongoose.Types.ObjectId.isValid(documentId)) {
+    // If nothing is selected, search all user's documents
+    if (selectedDocumentIds.length === 0) {
+      const documents = await Document.find(
+        { userId: req.userId },
+        { _id: 1 }
+      ).lean();
+
+      selectedDocumentIds = documents.map((doc) => doc._id.toString());
+
+      console.log(
+        `[chat] No document selected. Searching ${selectedDocumentIds.length} document(s).`
+      );
+    }
+
+    // If we have documents, use RAG
+    if (selectedDocumentIds.length > 0) {
+      const invalidDocument = selectedDocumentIds.some(
+        (id) => !mongoose.Types.ObjectId.isValid(id)
+      );
+
+      if (invalidDocument) {
         return res.status(400).json({
           success: false,
-          error: 'Invalid document ID format provided.',
+          error: 'One or more document IDs are invalid.',
         });
       }
 
-      const result = await answerQuestion(documentId, trimmed, req.userId);
+      const result = await answerQuestion({
+        documentIds: selectedDocumentIds,
+        question: trimmed,
+        userId: req.userId,
+      });
+
       return res.json({
         success: true,
         reply: result.reply,
@@ -43,13 +79,26 @@ router.post('/', requireAuth, async (req, res) => {
       });
     }
 
+    // User has no uploaded documents -> normal Gemini chat
     const reply = await getAIResponse(trimmed);
-    return res.json({ success: true, reply });
+
+    return res.json({
+      success: true,
+      reply,
+    });
+
   } catch (err) {
     console.error('[/chat] error:', err);
-    const message =
-      err instanceof Error ? err.message : 'The AI service is unavailable.';
-    return res.status(502).json({ success: false, error: message });
+
+    const errorMessage =
+      err instanceof Error
+        ? err.message
+        : 'The AI service is unavailable.';
+
+    return res.status(502).json({
+      success: false,
+      error: errorMessage,
+    });
   }
 });
 

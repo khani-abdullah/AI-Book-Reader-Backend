@@ -3,9 +3,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
-const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
-const embeddingModelName =
-  process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004';
+const modelName =
+  process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+
 
 function getChatModel() {
   if (!genAI) {
@@ -13,59 +13,86 @@ function getChatModel() {
       'GEMINI_API_KEY is not configured. Add it to backend/.env',
     );
   }
-  return genAI.getGenerativeModel({ model: modelName });
+
+  return genAI.getGenerativeModel({
+    model: modelName,
+  });
 }
+
+
+async function generateResponse(prompt) {
+  try {
+    const model = getChatModel();
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+
+    const text = response.text();
+
+    if (!text) {
+      throw new Error('The model returned an empty response.');
+    }
+
+    return text;
+
+  } catch (err) {
+    const detail =
+      err instanceof Error
+        ? err.message
+        : 'Unknown Gemini error.';
+
+    throw new Error(
+      `Gemini request failed: ${detail}`,
+    );
+  }
+}
+
 
 export { embedText } from './embeddings.js';
 
-const RAG_SYSTEM_INSTRUCTION = `You are a helpful assistant that answers questions strictly based on the provided document excerpts.
+
+const RAG_SYSTEM_INSTRUCTION = `
+You are a helpful AI assistant that answers questions about uploaded documents.
+
 Rules:
-- Answer ONLY using information from the excerpts below.
-- If the excerpts do not contain enough information, say so clearly — do not guess or use outside knowledge.
-- Be concise and accurate. Quote or paraphrase the source when helpful.
-- Do not mention "excerpts" or "context" — speak naturally as if you read the book.`;
+- Use only the provided document content to answer.
+- Do not use outside knowledge or make assumptions.
+- If the answer is not present in the document, clearly say that the document does not contain that information.
+- Keep answers accurate, clear, and concise.
+- Do not mention retrieval, context, or excerpts.
+- Answer naturally as if you have read the document.
+`;
+
 
 /**
  * Generate an answer grounded in retrieved document chunks.
  */
-export async function getRAGResponse(question, context, documentName) {
-  const model = getChatModel();
+export async function getRAGResponse(
+  question,
+  context,
+  documentName,
+) {
 
   const prompt = `${RAG_SYSTEM_INSTRUCTION}
 
-Document: "${documentName}"
+Documents:
+"${documentName}"
 
---- RETRIEVED CONTENT ---
+--- DOCUMENT CONTENT ---
 ${context}
---- END RETRIEVED CONTENT ---
+--- END DOCUMENT CONTENT ---
 
-User question: ${question}`;
+Question:
+${question}`;
 
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  const text = response.text();
 
-  if (!text) {
-    throw new Error('The model returned an empty response.');
-  }
-
-  return text;
+  return await generateResponse(prompt);
 }
 
+
 /**
- * Plain chat without RAG (fallback when no document is selected).
+ * Plain chat without RAG.
  */
 export async function getAIResponse(message) {
-  const model = getChatModel();
-
-  try {
-    const result = await model.generateContent(message);
-    const response = await result.response;
-    const text = response.text();
-    if (!text) throw new Error('The model returned an empty response.');
-    return text;
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : 'Unknown Gemini error.';
-    throw new Error(`Gemini request failed: ${detail}`);
-  }
+  return await generateResponse(message);
 }

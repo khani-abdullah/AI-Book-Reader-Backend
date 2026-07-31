@@ -1,8 +1,7 @@
 {
-  "name": "quill-backend",
+  "name": "bookmind-backend",
   "version": "1.0.0",
   "type": "module",
-  "description": "Express + Gemini backend for Quill — chat with your PDFs.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -18,6 +17,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.8.1",
     "multer": "^2.2.0",
+    "nodemailer": "^6.9.4",
     "pdf-parse": "^2.4.5"
   }
 }

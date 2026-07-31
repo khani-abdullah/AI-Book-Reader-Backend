@@ -8,9 +8,26 @@ const chunkSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    text: { type: String, required: true },
-    embedding: { type: [Number], required: true },
-    chunkIndex: { type: Number, required: true },
+
+    text: {
+      type: String,
+      required: true,
+    },
+
+    embedding: {
+      type: [Number],
+      required: true,
+      validate: {
+        validator: (value) => value.length > 0,
+        message: 'Embedding vector cannot be empty.',
+      },
+    },
+
+    chunkIndex: {
+      type: Number,
+      required: true,
+    },
+
     metadata: {
       startChar: { type: Number },
       endChar: { type: Number },
@@ -19,6 +36,11 @@ const chunkSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-chunkSchema.index({ documentId: 1, chunkIndex: 1 });
+
+chunkSchema.index({
+  documentId: 1,
+  chunkIndex: 1,
+});
+
 
 export const Chunk = mongoose.model('Chunk', chunkSchema);

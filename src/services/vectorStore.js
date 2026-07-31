@@ -1,6 +1,9 @@
 import { Chunk } from '../models/Chunk.js';
 
-const DEFAULT_TOP_K = Number(process.env.RAG_TOP_K) || 5;
+const DEFAULT_TOP_K = Number(process.env.RAG_TOP_K) || 8;
+
+const DEFAULT_PER_DOCUMENT_K =
+  Number(process.env.RAG_PER_DOCUMENT_K) || 2;
 
 /**
  * Cosine similarity between two equal-length vectors.
@@ -40,21 +43,61 @@ export async function storeChunks(documentId, chunksWithEmbeddings) {
  * Similarity search scoped to a single document.
  * Returns the top-k most relevant chunks sorted by score descending.
  */
-export async function searchSimilarChunks(documentId, queryEmbedding, topK = DEFAULT_TOP_K) {
-  const chunks = await Chunk.find({ documentId }).lean();
+export async function searchSimilarChunks(
+  documentIds,
+  queryEmbedding,
+  topK = DEFAULT_TOP_K,
+) {
+  const ids = Array.isArray(documentIds)
+    ? documentIds
+    : [documentIds];
 
-  if (chunks.length === 0) return [];
+  const chunks = await Chunk.find({
+    documentId: { $in: ids },
+  }).lean();
 
+  if (!chunks.length) {
+    return [];
+  }
+
+  // Calculate cosine similarity for every chunk
   const scored = chunks.map((chunk) => ({
     ...chunk,
     score: cosineSimilarity(queryEmbedding, chunk.embedding),
   }));
 
+  // Highest similarity first
   scored.sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, topK);
-}
+  // -----------------------------
+  // Diversify retrieval
+  // -----------------------------
 
+  const grouped = new Map();
+
+  for (const chunk of scored) {
+    const docId = chunk.documentId.toString();
+
+    if (!grouped.has(docId)) {
+      grouped.set(docId, []);
+    }
+
+    const documentChunks = grouped.get(docId);
+
+    if (documentChunks.length < DEFAULT_PER_DOCUMENT_K) {
+      documentChunks.push(chunk);
+    }
+  }
+
+  // Merge all selected chunks
+  const diversified = [...grouped.values()].flat();
+
+  // Sort again globally
+  diversified.sort((a, b) => b.score - a.score);
+
+  // Return the overall best results
+  return diversified.slice(0, topK);
+}
 /**
  * Remove all chunks belonging to a document.
  */

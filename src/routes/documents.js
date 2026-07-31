@@ -8,6 +8,43 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    if (!isDBReady()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database is not connected.',
+      });
+    }
+
+    const documents = await Document.find({
+      userId: req.userId,
+    })
+      .sort({ createdAt: -1 })
+      .select('_id name status pageCount chunkCount createdAt')
+      .lean();
+
+    return res.json({
+      success: true,
+      documents: documents.map((doc) => ({
+        id: doc._id.toString(),
+        name: doc.name,
+        status: doc.status,
+        pageCount: doc.pageCount,
+        chunkCount: doc.chunkCount,
+        createdAt: doc.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error('[GET /documents] error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch documents.',
+    });
+  }
+});
+
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     if (!isDBReady()) {
