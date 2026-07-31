@@ -7,8 +7,20 @@ import {
   storeChunks,
   deleteChunksByDocument,
   searchSimilarChunks,
+  filterRelevantChunks,
 } from './vectorStore.js';
-import { embedText, getRAGResponse } from './gemini.js';
+import { embedText, getAIResponse, getHybridResponse } from './gemini.js';
+
+function buildRetrievalQuery(question, history = []) {
+  const recentTurns = history
+    .slice(-4)
+    .map((turn) => `${turn.role}: ${turn.content}`)
+    .join('\n');
+
+  return recentTurns
+    ? `Previous conversation:\n${recentTurns}\n\nCurrent question: ${question}`
+    : question;
+}
 
 /**
  * Full ingestion pipeline:
@@ -94,6 +106,7 @@ export async function answerQuestion({
   documentIds,
   question,
   userId,
+  history = [],
 }) {
 
   const documents = await Document.find({
@@ -119,18 +132,23 @@ export async function answerQuestion({
   }
 
 
-  const queryEmbedding = await embedText(question);
+  const queryEmbedding = await embedText(
+    buildRetrievalQuery(question, history),
+  );
 
   const relevantChunks = await searchSimilarChunks(
     documentIds,
     queryEmbedding,
   );
 
+  const knowledgeChunks = filterRelevantChunks(relevantChunks);
 
-  if (relevantChunks.length === 0) {
-    throw new Error(
-      'No relevant content found in these documents.',
-    );
+  if (!knowledgeChunks.length) {
+    return {
+      reply: await getAIResponse(question, history),
+      sources: [],
+      usedDocumentKnowledge: false,
+    };
   }
 
 
@@ -145,7 +163,7 @@ const documentMap = new Map(
 // Group retrieved chunks by document
 const groupedChunks = new Map();
 
-for (const chunk of relevantChunks) {
+for (const chunk of knowledgeChunks) {
   const documentId = chunk.documentId.toString();
 
   if (!groupedChunks.has(documentId)) {
@@ -177,17 +195,19 @@ const documentNames = documents
   .join(', ');
 
 
-  const reply = await getRAGResponse(
+  const reply = await getHybridResponse(
     question,
     context,
     documentNames,
+    history,
   );
 
 
   return {
     reply,
+    usedDocumentKnowledge: true,
 
-    sources: relevantChunks.map((chunk) => ({
+    sources: knowledgeChunks.map((chunk) => ({
       chunkIndex: chunk.chunkIndex,
       score: chunk.score,
       preview:

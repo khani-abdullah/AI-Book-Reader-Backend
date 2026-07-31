@@ -5,6 +5,9 @@ const DEFAULT_TOP_K = Number(process.env.RAG_TOP_K) || 8;
 const DEFAULT_PER_DOCUMENT_K =
   Number(process.env.RAG_PER_DOCUMENT_K) || 2;
 
+const DEFAULT_RELEVANCE_THRESHOLD =
+  Number(process.env.RAG_RELEVANCE_THRESHOLD) || 0.45;
+
 /**
  * Cosine similarity between two equal-length vectors.
  */
@@ -97,6 +100,10 @@ export async function searchSimilarChunks(
 
   // Return the overall best results
   return diversified.slice(0, topK);
+}
+
+export function filterRelevantChunks(chunks, threshold = DEFAULT_RELEVANCE_THRESHOLD) {
+  return chunks.filter((chunk) => chunk.score >= threshold);
 }
 /**
  * Remove all chunks belonging to a document.

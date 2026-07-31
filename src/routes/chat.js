@@ -8,12 +8,36 @@ import { Document } from '../models/Document.js';
 
 const router = Router();
 
+const MAX_HISTORY_MESSAGES = 10;
+const MAX_HISTORY_MESSAGE_LENGTH = 2_000;
+
+function sanitizeHistory(history) {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history
+    .filter(
+      (turn) =>
+        turn &&
+        (turn.role === 'user' || turn.role === 'assistant') &&
+        typeof turn.content === 'string' &&
+        turn.content.trim(),
+    )
+    .slice(-MAX_HISTORY_MESSAGES)
+    .map((turn) => ({
+      role: turn.role,
+      content: turn.content.trim().slice(0, MAX_HISTORY_MESSAGE_LENGTH),
+    }));
+}
+
 router.post('/', requireAuth, async (req, res) => {
   try {
     const {
       message,
       documentId,
       documentIds,
+      history,
     } = req.body;
 
     if (!message || typeof message !== 'string' || !message.trim()) {
@@ -31,6 +55,7 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     const trimmed = message.trim();
+    const conversationHistory = sanitizeHistory(history);
 
     // Support both documentId and documentIds
     let selectedDocumentIds = Array.isArray(documentIds)
@@ -70,17 +95,19 @@ router.post('/', requireAuth, async (req, res) => {
         documentIds: selectedDocumentIds,
         question: trimmed,
         userId: req.userId,
+        history: conversationHistory,
       });
 
       return res.json({
         success: true,
         reply: result.reply,
         sources: result.sources,
+        usedDocumentKnowledge: result.usedDocumentKnowledge,
       });
     }
 
     // User has no uploaded documents -> normal Gemini chat
-    const reply = await getAIResponse(trimmed);
+    const reply = await getAIResponse(trimmed, conversationHistory);
 
     return res.json({
       success: true,
