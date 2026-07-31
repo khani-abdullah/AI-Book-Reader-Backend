@@ -70,7 +70,9 @@ app.use((err, _req, res, _next) => {
   }
 });
 
-await connectDB();
+// Keep the service reachable while MongoDB reconnects. Database-backed routes
+// already return 503 until isDBReady() reports a successful connection.
+void connectDB();
 
 app.listen(PORT, () => {
   console.log(`BookMind AI backend running on http://localhost:${PORT}`);
